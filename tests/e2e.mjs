@@ -1,0 +1,71 @@
+import {createRequire} from 'node:module';
+import assert from 'node:assert/strict';
+import {mkdir,readFile} from 'node:fs/promises';
+const {chromium}=createRequire(import.meta.url)('playwright');
+await mkdir('artifacts',{recursive:true});
+const browser=await chromium.launch({headless:true});
+const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+const page=await context.newPage();
+page.setDefaultTimeout(15000);
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+const click=s=>page.locator(s).first().click();
+const saved=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('nba-shenanigans:v1')));
+const shot=name=>page.screenshot({path:`artifacts/${name}.png`,fullPage:true});
+async function fits(name){for(const width of [1440,768,390]){await page.setViewportSize({width,height:1000});const overflow=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,offenders:[...document.querySelectorAll('main > *,header,footer')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).map(e=>e.className)}));assert.ok(overflow.scroll<=width+1,`${name} overflow: ${JSON.stringify(overflow)}`);}await page.setViewportSize({width:1440,height:1000});}
+try{
+ await page.goto(process.env.TEST_URL||'http://localhost:5174/',{waitUntil:'domcontentloaded'});
+ await page.locator('.player-card').first().waitFor();
+ assert.equal(await page.locator('.player-card').count(),20);
+ assert.equal(await page.locator('[data-action="launch"]').isDisabled(),true);
+ await fits('draft');await shot('01-current-draft');
+ await page.locator('#player-search').fill('Stephen Curry');
+ await click('[data-player="201939"]');
+ assert.equal(await page.locator('[data-assign="4"]').isDisabled(),true);
+ await click('[data-assign="0"]');assert.equal((await saved()).lineup[0],'201939');
+ await page.locator('#player-search').fill('jokic');assert.equal(await page.locator('.player-card').count(),1);
+ await click('[data-action="auto-draft"]');
+ assert.equal(new Set((await saved()).lineup).size,8);
+ assert.equal((await saved()).lineup[0],'201939');
+ await page.locator('#franchise-select').selectOption('GSW');
+ await page.locator('#seed-input').fill('BROWSER-SEED-26');
+ await page.locator('#series-select').selectOption('3');
+ await click('[data-strategy="pace"]');await click('[data-action="launch"]');
+ await page.locator('.bracket').waitFor();await fits('playoffs');await shot('02-playoffs');
+ assert.equal(new Set((await saved()).tournament.teams.flatMap(t=>t.roster)).size,64);
+ await click('[data-roster]');assert.equal(await page.locator('.roster-dialog > div').count(),8);await click('[data-action="close-modal"]');
+ await click('[data-action="simulate"]');await page.locator('.scoreboard').waitFor();
+ assert.equal(await page.locator('#box-table tbody tr').count(),9);
+ const game=(await saved()).tournament.games[0];
+ assert.equal(game.teams.includes('GSW'),true);
+ await click('[data-box-side="1"]');
+ assert.equal(await page.locator('.total-row td').nth(1).textContent(),String(game.scores[1]));
+ await fits('box score');await shot('03-game-centre');
+ const csvPromise=page.waitForEvent('download');await click('[data-action="export-game"]');const csv=await csvPromise;
+ assert.match(csv.suggestedFilename(),/\.csv$/);const csvText=await readFile(await csv.path(),'utf8');assert.equal(csvText.split('\r\n').length,17);
+ await page.reload({waitUntil:'domcontentloaded'});await click('.resume-card');
+ assert.deepEqual((await saved()).tournament.games[0],game);
+ for(let i=0;i<3;i++){if((await saved()).tournament.champion)break;const old=(await saved()).tournament.games.length;await click('[data-action="simulate-round"]');await page.waitForFunction(n=>JSON.parse(localStorage.getItem('nba-shenanigans:v1')).tournament.games.length>n,old);}
+ await page.locator('.champion-banner').waitFor();await fits('champion');await shot('04-champion');
+ const runPromise=page.waitForEvent('download');await click('[data-action="export-run"]');const runDownload=await runPromise;assert.ok(JSON.parse(await readFile(await runDownload.path(),'utf8')).champion);
+ await click('nav [data-view="leaders"]');await page.locator('#leader-sort').selectOption('rpg');assert.equal(await page.locator('.leaders-table tbody tr').count(),64);await fits('leaders');
+ await click('nav [data-view="draft"]');await click('[data-mode="legacy"]');
+ await click('[data-action="clear-roster"]');await click('[data-action="confirm"]');
+ assert.match(await page.locator('.pool-meta').textContent(),/5,205/);
+ await page.locator('#player-search').fill('Michael Jordan');await click('[data-draft="893"]');
+ assert.ok((await saved()).lineup.includes('893'));
+ await page.locator('#player-search').fill('Alaa Abdelnaby');
+ assert.match(await page.locator('.player-card').textContent(),/BASELINE/);await click('[data-draft="76001"]');
+ await click('[data-action="auto-draft"]');assert.ok((await saved()).lineup.includes('76001'));
+ await page.locator('#player-search').fill('');await fits('legacy');await shot('05-legacy-draft');
+ await page.locator('#series-select').selectOption('1');await page.locator('#opponent-pool').selectOption('archive');
+ await click('[data-action="launch"]');await click('[data-action="confirm"]');
+ for(let i=0;i<3;i++){const old=(await saved()).tournament.games.length;await click('[data-action="simulate-round"]');await page.waitForFunction(n=>JSON.parse(localStorage.getItem('nba-shenanigans:v1')).tournament.games.length>n,old);}
+ assert.equal((await saved()).tournament.games.length,7);assert.ok((await saved()).tournament.champion);
+ await click('[data-game]');await page.locator('.scoreboard').waitFor();
+ assert.equal(await page.locator('#box-table tbody tr').count(),9);
+ // CDN outages should preserve a readable card instead of a broken image.
+ await page.route('https://cdn.nba.com/**',route=>route.abort());
+ await click('nav [data-view="draft"]');await page.locator('.player-img[data-fallback="true"]').first().waitFor();
+ await page.waitForFunction(()=>[...document.querySelectorAll('.player-img[data-fallback]')].some(img=>img.complete&&img.naturalWidth>0));
+ assert.deepEqual(errors,[]);console.log('PASS: current and legacy drafts, historic baseline, full tournaments, box scores, CSV/JSON exports, save/resume, responsive layouts, and image fallback.');
+}catch(error){await shot('failure');console.error('BROWSER FAILURE:',error);throw error;}finally{await browser.close();}
