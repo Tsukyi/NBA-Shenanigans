@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir,readFile} from 'node:fs/promises';
 const {chromium}=createRequire(import.meta.url)('playwright');
 await mkdir('artifacts',{recursive:true});
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true,args:['--disable-http2']});
 const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
 const page=await context.newPage();
 page.setDefaultTimeout(15000);
@@ -20,7 +20,7 @@ try{
  await page.locator('.player-card').first().waitFor();
  assert.equal(await page.locator('.player-card').count(),20);
  assert.equal(await page.locator('[data-action="launch"]').isDisabled(),true);
- await fits('draft');await shot('01-current-draft');
+ await fits('draft');await page.waitForFunction(()=>[...document.querySelectorAll('.hero-player img')].every(img=>img.complete&&img.naturalWidth>0));console.log('PHOTO CHECK:',await page.locator('.hero-player img').evaluateAll(imgs=>imgs.map(img=>({url:img.currentSrc,fallback:!!img.dataset.fallback}))));await shot('01-current-draft');
  await page.locator('#player-search').fill('Stephen Curry');
  await click('[data-player="201939"]');
  assert.equal(await page.locator('[data-assign="4"]').isDisabled(),true);
@@ -67,7 +67,7 @@ try{
  await click('[data-game]');await page.locator('.scoreboard').waitFor();
  assert.equal(await page.locator('#box-table tbody tr').count(),9);
  // CDN outages should preserve a readable card instead of a broken image.
- await page.route('https://cdn.nba.com/**',route=>route.abort());
+ await page.route('https://cdn.nba.com/**',route=>route.abort());await page.route('https://ak-static.cms.nba.com/**',route=>route.abort());
  await click('nav [data-view="draft"]');await page.locator('.player-img[data-fallback="true"]').first().waitFor();
  await page.waitForFunction(()=>[...document.querySelectorAll('.player-img[data-fallback]')].some(img=>img.complete&&img.naturalWidth>0));
  assert.deepEqual(errors,[]);console.log('PASS: current and legacy drafts, historic baseline, full tournaments, box scores, CSV/JSON exports, save/resume, responsive layouts, and image fallback.');

@@ -11,7 +11,7 @@ try{const data=JSON.parse(localStorage.getItem('nba-shenanigans:v1'));if(data?.v
 function save(){try{localStorage.setItem('nba-shenanigans:v1',JSON.stringify(state));}catch{toast('Browser storage is full or unavailable. Export your run to keep a copy.');}}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('visible'),3500);}
 const image=p=>`<img class="player-img" src="${p.image}" alt="${esc(nameOf(p))}" loading="lazy" decoding="async">`;
-function logo(id,cls=''){const t=franchise(id);return `<span class="team-logo ${cls}" style="--team-color:${t.color}">${t.logo?`<img src="${t.logo}" alt="${esc(t.name)} logo" loading="lazy">`:`<b>${t.id==='ARCHIVE'?'H':t.id}</b>`}</span>`;}
+function logo(id,cls=''){const t=franchise(id);return `<span class="team-logo ${cls}" data-team="${t.id}" style="--team-color:${t.color}">${t.logo?`<img src="${t.logo}" alt="${esc(t.name)} logo" loading="lazy">`:`<b>${t.id==='ARCHIVE'?'H':t.id}</b>`}</span>`;}
 const pill=(text,cls='')=>`<span class="pill ${cls}">${text}</span>`;
 const title=(eyebrow,big,sub,action='')=>`<div class="page-heading"><div><p class="eyebrow">${eyebrow}</p><h1>${big}</h1><p class="subheading">${sub}</p></div>${action}</div>`;
 function shell(){
@@ -55,7 +55,7 @@ function confirm(title,text,fn,label){callback=fn;showModal(`<p class="eyebrow">
 function download(content,name,type){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function exportRun(){download(JSON.stringify(state.tournament,null,2),'nba-shenanigans-run.json','application/json');toast('Playoff run downloaded.');}
 function exportGame(){const g=selectedGame(),csv=v=>'"'+String(v).replaceAll('"','""')+'"';const rows=[['Team','Player',...statCols],...g.box.flatMap((side,i)=>side.map(s=>[g.teams[i],nameOf(playerById[s.id]),...statsCells(s)]))];download(rows.map(r=>r.map(csv).join(',')).join('\r\n'),'nba-shenanigans-'+g.id+'.csv','text/csv');}
-document.addEventListener('error',e=>{if(e.target.tagName!=='IMG')return;const img=e.target;if(img.classList.contains('player-img')&&!img.dataset.fallback){img.dataset.fallback='true';img.src=new URL('../assets/player-fallback.svg',import.meta.url).href;img.classList.add('fallback');img.alt+=' (photo unavailable)';}else if(img.parentElement?.classList.contains('team-logo')){const span=img.parentElement;span.innerHTML='<b>'+esc(img.alt.split(' ').map(s=>s[0]).slice(0,3).join(''))+'</b>'; }},true);
+document.addEventListener('error',e=>{if(e.target.tagName!=='IMG')return;const img=e.target;if(img.classList.contains('player-img')&&!img.dataset.fallback){if(!img.dataset.retried&&img.src.includes('cdn.nba.com/headshots/')){img.dataset.retried='true';img.src=img.src.replace('https://cdn.nba.com/headshots/','https://ak-static.cms.nba.com/wp-content/uploads/headshots/');return;}img.dataset.fallback='true';img.src=new URL('../assets/player-fallback.svg',import.meta.url).href;img.classList.add('fallback');img.alt+=' (photo unavailable)';}else if(img.parentElement?.classList.contains('team-logo')){const span=img.parentElement;span.innerHTML='<b>'+esc(span.dataset.team||'NBA')+'</b>'; }},true);
 document.addEventListener('click',e=>{const el=e.target.closest('button,a');if(!el)return;
  if(el.dataset.view){e.preventDefault();navigate(el.dataset.view);return;}
  if(el.dataset.mode){modeSwitch(el.dataset.mode);return;}
