@@ -8,6 +8,9 @@ const context=await browser.newContext({viewport:{width:1440,height:1000},reduce
 const page=await context.newPage();
 page.setDefaultTimeout(15000);
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
+let imageFailures=0;
+page.on('requestfailed',r=>{if(r.url().includes('cdn.nba.com')&&imageFailures++<5)console.log('IMAGE NETWORK:',r.failure()?.errorText,r.url());});
+page.on('response',r=>{if(r.url().includes('cdn.nba.com')&&r.status()>=400&&imageFailures++<5)console.log('IMAGE HTTP:',r.status(),r.url());});
 const click=s=>page.locator(s).first().click();
 const saved=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('nba-shenanigans:v1')));
 const shot=name=>page.screenshot({path:`artifacts/${name}.png`,fullPage:true});
